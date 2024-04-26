@@ -3,7 +3,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const jwt = require("jsonwebtoken");
 
 app.use(cors());
@@ -25,7 +25,7 @@ const verifyJWT = (req, res, next) => {
         return res.status(401).send({ message: "Unauthorize Access" });
     }
     const token = authHeader.split(" ")[1];
-    jwt.verify(token, ACCESS_TOKEN, function (error, decoded) {
+    jwt.verify(token, process.env.ACCESS_TOKEN, function (error, decoded) {
         if (error) {
             return res.status(401).send({ message: "Unauthorize Access" });
         }
@@ -39,6 +39,9 @@ const run = async () => {
     try {
         const Categories = client.db("Library").collection("Category");
         const Users = client.db("Library").collection("User");
+        const AllBooks = client.db("Library").collection("AllBooks");
+        const WishList = client.db("Library").collection("WishList");
+
         app.get("/", async (req, res) => {
 
             res.send("Working");
@@ -91,6 +94,56 @@ const run = async () => {
                     return res.send({ user: false });
                 }
             })
+        })
+
+        app.post("/uploadBook", verifyJWT, async (req, res) => {
+            const data = { ...req.body };
+            const getAllBooks = await AllBooks.findOne({ isbn: req.body.isbn });
+            if (getAllBooks) {
+                return res.send({ acknowledged: false, message: "Book already exists" })
+            }
+            else {
+                const result = await AllBooks.insertOne(data);
+                return res.send(result);
+            }
+        })
+
+        app.get("/specific-category/:name", async (req, res) => {
+            console.log(req.params.name);
+            const category = req.params.name;
+            const result = await AllBooks.find({ category: category }).toArray();
+            res.send(result);
+        })
+
+        app.get('/bookDetails/:id', async (req, res) => {
+            const email = req.query.user;
+            let availability;
+            if (email) {
+                availability = await WishList.findOne({ $and: [{ email: email }, { bookId: req.params.id }] });
+            }
+            let getBook = await AllBooks.findOne({ _id: new ObjectId(req.params.id) })
+            getBook = { ...getBook, wishlist: availability ? true : false };
+            res.send(getBook);
+        })
+        
+        app.post('/add-to-wish', verifyJWT, async(req, res)=>{
+            let data = {...req.body, email: req.query.user, bookId: req.body._id};
+            delete data._id;
+            const result = await WishList.insertOne({...data});
+            res.send(result);
+        })
+
+        app.post("/delete-wish", verifyJWT, async(req, res)=>{
+            // console.log(req.body, req.query.user);
+            const result= await WishList.deleteOne({bookId: req.body._id, email: req.query.user});
+            res.send(result);
+            
+        })
+
+        app.get("/wishlist", verifyJWT, async(req, res)=>{
+            console.log(req.query.user);
+            const result = await WishList.find({email: req.query.user}).toArray();
+            res.send(result);
         })
     }
     finally {
