@@ -41,6 +41,7 @@ const run = async () => {
         const Users = client.db("Library").collection("User");
         const AllBooks = client.db("Library").collection("AllBooks");
         const WishList = client.db("Library").collection("WishList");
+        const Cart = client.db("Library").collection("Cart");
 
         app.get("/", async (req, res) => {
 
@@ -106,10 +107,25 @@ const run = async () => {
                 const result = await AllBooks.insertOne(data);
                 return res.send(result);
             }
+        });
+
+        app.post('/addToCart', verifyJWT, async(req, res)=>{
+            const result = await Cart.insertOne({...req.body});
+            res.send(result);
+        })
+
+        app.post("/removeFromCart", verifyJWT, async(req, res)=>{
+            const result = await Cart.deleteOne({$and:[{email: req.query.user}, {bookId: req.body.bookId}]});
+            res.send(result);
+        })
+
+        app.get('/allCartData', verifyJWT, async(req, res)=>{
+            const result = await Cart.find({email: req.query.user}).toArray();
+            res.send(result);
         })
 
         app.get("/specific-category/:name", async (req, res) => {
-            console.log(req.params.name);
+            // console.log(req.params.name);
             const category = req.params.name;
             const result = await AllBooks.find({ category: category }).toArray();
             res.send(result);
@@ -118,33 +134,60 @@ const run = async () => {
         app.get('/bookDetails/:id', async (req, res) => {
             const email = req.query.user;
             let availability;
+            let cartAvailability;
             if (email) {
                 availability = await WishList.findOne({ $and: [{ email: email }, { bookId: req.params.id }] });
+                cartAvailability = await Cart.findOne({ $and: [{ email: email }, { bookId: req.params.id }] });
             }
             let getBook = await AllBooks.findOne({ _id: new ObjectId(req.params.id) })
-            getBook = { ...getBook, wishlist: availability ? true : false };
+            getBook = { ...getBook, wishlist: availability ? true : false, cartChecked: cartAvailability ? true : false };
             res.send(getBook);
         })
-        
-        app.post('/add-to-wish', verifyJWT, async(req, res)=>{
-            let data = {...req.body, email: req.query.user, bookId: req.body._id};
-            delete data._id;
-            const result = await WishList.insertOne({...data});
-            res.send(result);
-        })
 
-        app.post("/delete-wish", verifyJWT, async(req, res)=>{
-            // console.log(req.body, req.query.user);
-            const result= await WishList.deleteOne({bookId: req.body._id, email: req.query.user});
-            res.send(result);
+        app.patch('/updateBook', async(req, res)=>{
             
-        })
-
-        app.get("/wishlist", verifyJWT, async(req, res)=>{
-            console.log(req.query.user);
-            const result = await WishList.find({email: req.query.user}).toArray();
+            const data = {...req.body};
+            delete data._id;
+            const filter = {
+                _id: new ObjectId(req.body._id)
+            };
+            const updatedDoc= {
+                $set: {
+                    ...data
+                }
+            }
+            const option = {upsert: true};
+            const result = await AllBooks.updateOne(filter, updatedDoc, option);
             res.send(result);
         })
+
+        app.delete('/deleteBook', verifyJWT, async(req, res)=>{
+            const deleteFromWishList = await WishList.deleteMany({bookId: req.query.id});
+            const deleteFromCart= await Cart.deleteMany({bookId: req.query.id});
+            const deleteBook = await AllBooks.deleteOne({_id: new ObjectId(req.query.id)});
+            res.send(deleteBook);
+        })
+
+        app.post('/add-to-wish', verifyJWT, async (req, res) => {
+            let data = { ...req.body, email: req.query.user, bookId: req.body._id };
+            delete data._id;
+            const result = await WishList.insertOne({ ...data });
+            res.send(result);
+        })
+
+        app.post("/delete-wish", verifyJWT, async (req, res) => {
+            // console.log(req.body, req.query.user);
+            const result = await WishList.deleteOne({ bookId: req.body._id, email: req.query.user });
+            res.send(result);
+
+        })
+
+        app.get("/wishlist", verifyJWT, async (req, res) => {
+            // console.log(req.query.user);
+            const result = await WishList.find({ email: req.query.user }).toArray();
+            res.send(result);
+        })
+
     }
     finally {
 
